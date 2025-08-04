@@ -17,7 +17,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("密评小工具")
-        self.resize(850, 1150)
+        self.resize(850, 1350)
 
         self.current_msg_format = "UTF-8"
         self.last_msg_format = "UTF-8"
