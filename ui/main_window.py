@@ -8,7 +8,7 @@ from ui.tools_tab import ToolsTab
 TABS = [
     ("SM2", SM2Tab),
     ("RSA", RSATab),
-    #("TOOLS", ToolsTab),
+    ("TOOLS", ToolsTab)
 ]
 
 

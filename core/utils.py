@@ -1,4 +1,24 @@
 import base64
+from datetime import datetime
+
+
+def is_within_validity(start_date_str, end_date_str):
+    """
+    判断当前时间是否在给定的日期范围内。
+    输入格式必须是：'YYYY年MM月DD日'，如 '2024年12月24日'
+    """
+    # 当前日期
+    today = datetime.today()
+
+    # 解析日期字符串为 datetime 对象
+    try:
+        start_date = datetime.strptime(start_date_str, "%Y年%m月%d日")
+        end_date = datetime.strptime(end_date_str, "%Y年%m月%d日")
+    except ValueError as e:
+        print(f"日期格式错误: {e}")
+        return False
+
+    return start_date <= today <= end_date
 
 def convert_to_hex(msg: str, to_format: str = "hex") -> str:
     to_format = to_format.lower()
@@ -82,5 +102,15 @@ def base642utf8(msg: str):
         return f"转换失败: {e}"
 
 
+def days_until(target_date_str: str) -> int:
+    try:
+        # 解析中文格式日期
+        target_date = datetime.strptime(target_date_str, "%Y年%m月%d日").date()
+        today = datetime.today().date()
+        delta = (target_date - today).days
+        return delta
+    except ValueError as e:
+        print(f"[Error] 日期格式错误: {e}")
+        return -1
 
 

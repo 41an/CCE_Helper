@@ -8,8 +8,10 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtGui import QIntValidator
 
-from core.rsa_handler import RSAUtil, is_valid_rsa_private_key, is_valid_rsa_public_key, \
-    extract_public_key_from_private, convert_private_key_auto, convert_public_key_auto
+from core.rsa_handler import RSAUtil, \
+    extract_public_key_from_private, convert_private_key_auto, convert_public_key_auto, is_valid_rsa_pem_private_key, \
+    is_valid_rsa_pem_public_key, is_valid_rsa_der_private_key, is_valid_rsa_private_key, is_valid_rsa_public_key, \
+    der_to_pkcs8_priv, der_to_spki_pub
 from core.utils import  hex2utf8, hex2base64, utf82base64, utf82hex, \
     base642hex, base642utf8
 
@@ -56,6 +58,7 @@ class RSATab(QWidget):
         # key_title_layout.addWidget(QLabel("密钥对:"))
         self.btn_change_priv_key_format = QPushButton("priv")
         self.btn_change_pub_key_format = QPushButton("pub")
+        # key_title_layout.addWidget(self.btn_change_priv_key_format )
         key_title_layout.addWidget(self.btn_change_priv_key_format )
         key_title_layout.addWidget(self.btn_change_pub_key_format )
 
@@ -64,6 +67,7 @@ class RSATab(QWidget):
         # 密钥长度
         self.step_input = StepInputWidget()
         key_title_layout.addWidget(self.step_input)
+
         # 生成密钥对
         self.btn_generate_key = QPushButton("生成密钥对")
         key_title_layout.addWidget(self.btn_generate_key)
@@ -97,7 +101,7 @@ class RSATab(QWidget):
         # self.pem_tab.setLayout(pem_layout)
 
         # self.key_tab.addTab(self.pkcs1_tab, "PKCS#1")
-        self.key_tab.addTab(self.PKCS_SPKI_tab, "PEM")
+        self.key_tab.addTab(self.PKCS_SPKI_tab, "HEX")
 
         self.key_tab.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         key_layout.addWidget(self.key_tab)
@@ -266,16 +270,11 @@ class RSATab(QWidget):
         step_input_value = self.step_input.get_value()
         rsa_util = RSAUtil(key_size=step_input_value, public_exponent=65537)
 
-        # 导出私钥PEM格式PKCS8
-        private_pem = rsa_util.export_private_key(encoding='PEM', format='PKCS8')
-        public_pem = rsa_util.export_public_key()
+        private_pem = rsa_util.export_private_key(encoding='DER', format='PKCS8')
+        public_pem = rsa_util.export_public_key(encoding='DER')
 
-        # 默认生成的密钥对在最后一行为空行，将其删除
-        private_pem_without_line = "\n".join(line for line in private_pem.decode().splitlines() if line.strip())
-        public_pem_without_line = "\n".join(line for line in public_pem.decode().splitlines() if line.strip())
-
-        self.private_key_PKCS.setText(private_pem_without_line)
-        self.public_key_SPKI.setText(public_pem_without_line)
+        self.private_key_PKCS.setText(private_pem.hex())
+        self.public_key_SPKI.setText(public_pem.hex())
 
     # 获取秘钥
     def get_keypair(self):
@@ -283,60 +282,63 @@ class RSATab(QWidget):
 
     def change_priv_key_format(self):
         self.result_output.setText("")
-        priv_key , pub_key  = self.get_keypair()
-        if priv_key != "" :
-            if is_valid_rsa_private_key(priv_key):
-                res = convert_private_key_auto(priv_key.encode())
-                if "err" in res:
-                    self.result_output.setText(res)
-                    return
-                else :
-                    self.private_key_PKCS.setText(res)
-                    self.result_output.setStyleSheet("color: green;")
-                    self.result_output.setText("格式转化成功")
-            else:
-                self.result_output.setStyleSheet("color: red;")
-                self.result_output.setText("非法的私钥")
-        else :
+        priv_key, pub_key = self.get_keypair()
+
+        if priv_key.strip() == "":
             self.result_output.setStyleSheet("color: red;")
             self.result_output.setText("私钥为空，无法转换格式")
+            return
+
+        try:
+            res = convert_private_key_auto(priv_key.encode("utf-8"))
+
+            self.private_key_PKCS.setText(res)
+            self.result_output.setStyleSheet("color: green;")
+            self.result_output.setText("私钥格式转化成功")
+        except Exception as e:
+            self.result_output.setStyleSheet("color: red;")
+            self.result_output.setText(f"转换失败：{str(e)}")
 
 
     def change_pub_key_format(self):
         self.result_output.setText("")
-        priv_key , pub_key  = self.get_keypair()
-        if priv_key == "" and pub_key == "":
-            self.result_output.setStyleSheet("color: red;")
-            self.result_output.setText("私钥和公钥均为空，无法转换格式")
-            return
-        if priv_key != "" and pub_key == "":
-            if is_valid_rsa_private_key(priv_key):
-                print(priv_key.encode())
-                pub_key = "\n".join(
-                    line for line in extract_public_key_from_private(priv_key.encode()).decode("utf-8").splitlines()
-                    if
-                    line.strip())
-                self.public_key_SPKI.setText(pub_key)
-                self.result_output.setStyleSheet("color: green;")
-                self.result_output.setText("提取公钥成功")
+        priv_key, pub_key = self.get_keypair()
+
+        try:
+            if not priv_key and not pub_key:
+                self._set_result("私钥和公钥均为空，无法转换格式", "red")
                 return
-            else:
-                self.result_output.setStyleSheet("color: red;")
-                self.result_output.setText("非法的私钥，无法提取公钥")
+
+            # 1. 仅提供私钥，尝试提取公钥
+            if priv_key and not pub_key:
+                format = is_valid_rsa_private_key(priv_key)
+                if format == "der":
+                    priv_key = convert_private_key_auto(priv_key.encode("utf-8"))
+
+                format = is_valid_rsa_private_key(priv_key)
+                if format == "pem":
+                    pub_key_der = extract_public_key_from_private(priv_key.encode("utf-8"))
+                    pub_key_pem = convert_public_key_auto(pub_key_der)
+                    self.public_key_SPKI.setText(pub_key_pem.strip())
+                    self._set_result("提取公钥成功", "green")
+                else:
+                    self._set_result("非法私钥", "red")
+
                 return
-        elif is_valid_rsa_public_key(pub_key.encode()):
-            pub_key = "\n".join(
-                line for line in convert_public_key_auto(pub_key.encode()).decode("utf-8").splitlines()
-                if
-                line.strip())
-            self.public_key_SPKI.setText(pub_key)
-            self.result_output.setStyleSheet("color: green;")
-            self.result_output.setText("格式转化成功")
-            return
-        else:
-            self.result_output.setStyleSheet("color: red;")
-            self.result_output.setText("非法的公钥")
-        return
+
+            # 2. 提供公钥，尝试格式转换
+            if pub_key:
+                res = convert_public_key_auto(pub_key.encode("utf-8"))
+                self.public_key_SPKI.setText(res)
+                self._set_result("公钥格式转换成功", "green")
+                return
+
+        except Exception as e:
+            self._set_result(f"处理失败: {e}", "red")
+
+    def _set_result(self, text, color):
+        self.result_output.setStyleSheet(f"color: {color};")
+        self.result_output.setText(text)
     # -------------------- END 1-密钥对 --------------------#
 
 
@@ -384,7 +386,6 @@ class RSATab(QWidget):
     # -------------------- BEGIN 3-签名验签 --------------------#
     def sign(self):
         self.result_output.setText("")
-        # key_size = self.step_input.get_value()
         private_key , public_key = self.get_keypair()
         msg = self.get_msg()
         padding_mode,hash_alg,signature = self.get_signature_config()
@@ -413,23 +414,28 @@ class RSATab(QWidget):
         try:
             bytes.fromhex(msg)
         except Exception as e:
+
             self.result_output.setStyleSheet("color: red;")
             self.result_output.setText("16进制的消息格式有误")
             return
 
+        # 签名
+        format = is_valid_rsa_private_key(private_key.encode())
 
-        if not is_valid_rsa_private_key(private_key.encode()):
-            self.result_output.setStyleSheet("color: red;")
-            self.result_output.setText("私钥无效")
+        if format == "der":
+            private_key = der_to_pkcs8_priv(bytes.fromhex(private_key)).decode("utf-8")
+        if format == "err":
+            self._set_result("私钥有误","red")
+
+        try:
+            rsa_util = RSAUtil.from_pem(private_key.encode())
+            signature = rsa_util.sign(bytes.fromhex(msg), padding_mode=padding_mode, hash_alg=hash_alg)
+        except Exception as e:
+            self._set_result(f"签名失败，{e}","red")
             return
 
-        # 签名
-        rsa_util = RSAUtil.from_pem(private_key.encode())
-        signature = rsa_util.sign(bytes.fromhex(msg), padding_mode=padding_mode, hash_alg=hash_alg)
-
         self.signature.setText(signature.hex())
-        self.result_output.setStyleSheet("color: green;")
-        self.result_output.setText("签名计算成功")
+        self._set_result("签名计算成功", "green")
 
     # 验签
     def verify(self):
@@ -465,34 +471,36 @@ class RSATab(QWidget):
                 line.strip())
             self.public_key_SPKI.setText(public_key)
 
-
-        if not is_valid_rsa_public_key(public_key.encode()):
-            self.result_output.setStyleSheet("color: red;")
-            self.result_output.setText("公钥无效")
-            return
-
         try:
             bytes.fromhex(msg)
         except Exception as e:
-            self.result_output.setStyleSheet("color: red;")
-            self.result_output.setText("16进制的消息格式有误")
+            self._set_result("16进制的消息格式有误", "red")
             return
 
         try:
             bytes.fromhex(signature)
         except Exception as e:
-            self.result_output.setStyleSheet("color: red;")
-            self.result_output.setText("16进制的签名格式有误")
+            self._set_result("16进制的签名格式有误", "red")
             return
 
-        rsa_util = RSAUtil.from_pem(public_key.encode())
+        format = is_valid_rsa_public_key(public_key.encode())
+        if format == "der":
+            public_key = der_to_spki_pub(bytes.fromhex(public_key)).decode("utf-8")
+        if format == "err":
+            self._set_result(f"公钥非法","red")
+            return
 
-        if rsa_util.verify(bytes.fromhex(msg), bytes.fromhex(signature), padding_mode=padding_mode, hash_alg=hash_alg):
-            self.result_output.setStyleSheet("color: green;")
-            self.result_output.setText("签名验证完成：内容与签名匹配")
+        try:
+            rsa_util = RSAUtil.from_pem(public_key.encode())
+            res = rsa_util.verify(bytes.fromhex(msg), bytes.fromhex(signature), padding_mode=padding_mode, hash_alg=hash_alg)
+        except Exception as e:
+            self._set_result(f"签名失败，{e}","red")
+            return
+
+        if res:
+            self._set_result(f"签名验证完成：内容与签名匹配","green")
         else:
-            self.result_output.setStyleSheet("color: red;")
-            self.result_output.setText("签名验证完成：内容与签名不匹配")
+            self._set_result("签名验证完成：内容与签名不匹配","red")
     # -------------------- END 3-签名验签 --------------------#
 
 class StepInputWidget(QWidget):
