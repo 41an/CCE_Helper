@@ -8,7 +8,7 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QTextEdit
 
-from core.tools_handler import parse_cer_info, get_TBS, pem_to_cer, get_public_key, get_signature
+from core.tools_handler import parse_cer_info, get_TBS, pem_to_cer, get_public_key, get_signature, parse_cer_safely
 from core.utils import is_within_validity, days_until
 
 
@@ -140,7 +140,9 @@ class ToolsTab(QWidget):
 
         self.file_path_edit.setText(file_path)
 
-        result = parse_cer_info(file_path)
+        # 解决win环境下 openssl 无法处理带中文字符的证书
+        result = parse_cer_safely(file_path, parse_cer_info)
+        # result = parse_cer_info(file_path)
 
         if not result.get("success"):
             QMessageBox.critical(self, "解析失败", result.get("error", "未知错误"))

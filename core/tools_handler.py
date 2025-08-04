@@ -1,6 +1,9 @@
 import os
+import shutil
 import subprocess
 import re
+import tempfile
+import time
 
 from datetime import datetime
 
@@ -63,6 +66,7 @@ def parse_cer_info(cer_path: str) -> dict:
             ["openssl", "x509", "-in", cer_path, "-inform", inform, "-noout", "-text"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
         if result.returncode != 0:
             raise RuntimeError(f"{inform.upper()} 格式解析失败: {result.stderr.decode()}")
@@ -130,6 +134,33 @@ def parse_cer_info(cer_path: str) -> dict:
     info["error"] = ""
 
     return info
+
+def parse_cer_safely(original_path, parse_function):
+    # 检查文件是否存在
+    if not os.path.isfile(original_path):
+        return {"success": False, "error": f"文件不存在: {original_path}"}
+
+    # 生成临时路径（使用时间戳 + 原扩展名）
+    ext = os.path.splitext(original_path)[1]
+    temp_dir = tempfile.gettempdir()  # eg. C:\Users\xxx\AppData\Local\Temp
+    temp_path = os.path.join(temp_dir, f"{int(time.time())}{ext}")
+
+    try:
+        # 拷贝原始文件为临时副本
+        shutil.copy2(original_path, temp_path)
+
+        # 传递给解析函数
+        result = parse_function(temp_path)
+
+        return result
+
+    finally:
+        # 无论成功与否都清理临时文件
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as e:
+                print(f"[警告] 无法删除临时文件: {e}")
 
 from cryptography import x509
 def get_signature(cert_path: str) -> str:
